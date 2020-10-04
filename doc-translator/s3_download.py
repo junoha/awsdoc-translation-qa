@@ -21,7 +21,7 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 BUCKET = os.environ.get("BUCKET")
 PREFIX = os.environ.get("PREFIX")
 TIMESTAMP = os.environ.get("TIMESTAMP")
-INPUT_PREFIX = PREFIX + "/" + TIMESTAMP
+INPUT_PREFIX = PREFIX + "/" + TIMESTAMP + "/"
 
 
 def filter_data(target_path: str):
@@ -102,9 +102,8 @@ def download_input_from_s3():
     """
     Download gzip files to /tmp/INPUT_PREFIX/raw
     """
-    fixed_prefix = INPUT_PREFIX + "/raw/"
     succeeded = s3util.download_dir(
-        bucket=BUCKET, prefix=fixed_prefix, local="/tmp")
+        bucket=BUCKET, prefix=INPUT_PREFIX, local="/tmp")
     if succeeded is False:
         logger.error("S3 Download failed")
         return 1
@@ -113,7 +112,7 @@ def download_input_from_s3():
     # gunzip /tmp/INPUT_PREFIX/raw/*.gz
     try:
         subprocess.run(
-            "gunzip /tmp/{}/*.gz".format(fixed_prefix),
+            "gunzip /tmp/{}/*.gz".format(INPUT_PREFIX),
             shell=True,
             stdout=PIPE,
             stderr=PIPE,
@@ -121,12 +120,12 @@ def download_input_from_s3():
         )
     except Exception:
         trace = traceback.format_exc()
-        logger.error("Error while gunzip /tmp/{}/*.gz".format(fixed_prefix))
+        logger.error("Error while gunzip /tmp/{}/*.gz".format(INPUT_PREFIX))
         logger.exception(trace)
         return 1
 
     # Read /tmp/INPUT_PREFIX jsonline and filter and append list
-    filtered_data = filter_data("/tmp/{}".format(fixed_prefix))
+    filtered_data = filter_data("/tmp/{}".format(INPUT_PREFIX))
     logger.info("Document size: {}".format(len(filtered_data)))
 
     return filtered_data
@@ -142,7 +141,7 @@ def upload_rawdata_to_s3(filtered_data):
         filtered_data_bytes = "\n".join([json.dumps(d) for d in filtered_data]).encode(
             "utf-8"
         )
-        key = "{}/{}/filtered_rawdata_{}.jsonl.gz".format(
+        key = "{}{}/filtered_rawdata_{}.jsonl.gz".format(
             INPUT_PREFIX, "merged", TIMESTAMP)
         s3util.upload_file_with_gzip(BUCKET, key, filtered_data_bytes)
     except Exception as e:
@@ -152,8 +151,8 @@ def upload_rawdata_to_s3(filtered_data):
 def upload_per_html_to_s3(filtered_data):
     for data in filtered_data:
         obj_path = url_to_path(data["url"])
-        key = "{}/{}/{}/{}".format(INPUT_PREFIX,
-                                   "amazon-translate", "en", obj_path)
+        key = "{}{}/{}/{}".format(INPUT_PREFIX,
+                                  "amazon-translate", "en", obj_path)
         try:
             raw_html_bytes = data["raw_html"].encode("utf-8")
             s3util.upload_file(BUCKET, key, raw_html_bytes)
