@@ -34,12 +34,13 @@ def download_dir(bucket="your_bucket", prefix="prefix", local="/tmp"):
         return True
 
     except ClientError:
-        logger.error("Error while S3 download s3://{}/{}".format(bucket, prefix))
+        logger.error(
+            "Error while S3 download s3://{}/{}".format(bucket, prefix))
         logger.exception(traceback.format_exc())
         return False
 
 
-def upload_file(bucket: str, key: str, data: bytes):
+def upload_file_with_gzip(bucket: str, key: str, data: bytes):
     """
     Upload file with gzip
     """
@@ -49,7 +50,22 @@ def upload_file(bucket: str, key: str, data: bytes):
             gz.write(data)
         bio.seek(0)
 
-        s3.upload_fileobj(bio, bucket, key, ExtraArgs={"ContentEncoding": "gzip"})
+        s3.upload_fileobj(bio, bucket, key, ExtraArgs={
+                          "ContentEncoding": "gzip"})
+        return True
+    except ClientError:
+        logger.error("Error while S3 upload s3://{}/{}".format(bucket, key))
+        logger.exception(traceback.format_exc())
+        return False
+
+
+def upload_file(bucket: str, key: str, data: bytes):
+    """
+    Upload file with gzip
+    """
+    try:
+        obj = BytesIO(data)
+        s3.upload_fileobj(obj, bucket, key)
         return True
     except ClientError:
         logger.error("Error while S3 upload s3://{}/{}".format(bucket, key))

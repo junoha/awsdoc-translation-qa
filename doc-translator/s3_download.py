@@ -10,7 +10,7 @@ import traceback
 import lxml
 from lxml.html.clean import clean_html
 
-from helper import calc_time
+from helper import calc_time, url_to_path
 import s3util
 
 formatter = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -144,10 +144,22 @@ def upload_rawdata_to_s3(filtered_data):
         )
         key = "{}/{}/filtered_rawdata_{}.jsonl.gz".format(
             INPUT_PREFIX, "merged", TIMESTAMP)
-        s3util.upload_file(BUCKET, key, filtered_data_bytes)
-        logger.info("s3 upload complete")
+        s3util.upload_file_with_gzip(BUCKET, key, filtered_data_bytes)
     except Exception as e:
         logger.exception("Error while s3 upload", exc_info=e)
+
+
+def upload_per_html_to_s3(filtered_data):
+    for data in filtered_data:
+        obj_path = url_to_path(data["url"])
+        key = "{}/{}/{}/{}".format(INPUT_PREFIX,
+                                   "amazon-translate", "en", obj_path)
+        try:
+            raw_html_bytes = data["raw_html"].encode("utf-8")
+            s3util.upload_file(BUCKET, key, raw_html_bytes)
+        except Exception as e:
+            logger.exception(
+                "Error while s3 upload : s3://{}/{}".format(BUCKET, key), exc_info=e)
 
 
 @calc_time
@@ -156,8 +168,8 @@ def main():
     Main logic
 
     Summary:
-        1. Download from S3
-        2. Filter data
+        1. Download from S3 and filter data
+        2. Store merged raw jsonl to local storage
         3. Upload merged raw jsonl to S3 (filtered_rawdata.jsonl)
         4. Upload original HTML per URL to S3
     """
@@ -172,12 +184,18 @@ def main():
     # Download from S3
     filtered_data = download_input_from_s3()
 
-    # Store rawdata in local
-    with jsonlines.open("./filtered_rawdata_{}.jsonl".format(TIMESTAMP), mode="w") as writer:
-        writer.write_all(filtered_data)
+    # Store merged raw jsonl to local storage
+    # with jsonlines.open("./filtered_rawdata_{}.jsonl".format(TIMESTAMP), mode="w") as writer:
+    #     writer.write_all(filtered_data)
 
-    # Store rawdata in S3
+    # Upload merged raw jsonl to S3 (filtered_rawdata.jsonl)
     upload_rawdata_to_s3(filtered_data)
+    logger.info("s3 upload complete : merged raw jsonl")
+
+    # Upload original HTML per URL to S3
+    upload_per_html_to_s3(filtered_data)
+
+    logger.info("Finished")
 
 
 if __name__ == "__main__":
