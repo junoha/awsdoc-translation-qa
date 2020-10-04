@@ -5,12 +5,26 @@ import time
 logger = logging.getLogger("translator").getChild(__name__)
 
 
+def url_to_path(url: str):
+    """
+    Convert URL to path
+    """
+    return url.replace("://", "___").replace(".", "__").replace("/", "_")
+
+
+def path_to_url(path: str):
+    """
+    Convert path to URL
+    """
+    return path.replace("___", "://").replace("__", ".").replace("_", "/")
+
+
 def chunks(lst, n):
     """
     Yield successive n-sized chunks from lst.
     """
     for i in range(0, len(lst), n):
-        yield lst[i : i + n]
+        yield lst[i: i + n]
 
 
 def calc_time(fn):

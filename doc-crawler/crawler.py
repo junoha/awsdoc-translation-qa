@@ -164,7 +164,7 @@ def get_all_docs(sitemap_urls):
             jsonl_bytes = "\n".join([json.dumps(d.result()) for d in done]).encode(
                 "utf-8"
             )
-            key = "{}/crawled-html-{}.jsonl.gz".format(
+            key = "{}/raw/crawled-html-{}.jsonl.gz".format(
                 PREFIX, len(sitemap_urls) - remain_count
             )
             s3util.upload_file(BUCKET, key, jsonl_bytes)

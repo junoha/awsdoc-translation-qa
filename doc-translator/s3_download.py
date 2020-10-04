@@ -21,7 +21,7 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 BUCKET = os.environ.get("BUCKET")
 PREFIX = os.environ.get("PREFIX")
 TIMESTAMP = os.environ.get("TIMESTAMP")
-INPUT_PREFIX = PREFIX + "/" + TIMESTAMP + "/"
+INPUT_PREFIX = PREFIX + "/" + TIMESTAMP
 
 
 def filter_data(target_path: str):
@@ -84,6 +84,7 @@ def filter_data(target_path: str):
                             "guide": guide,
                             "title": title,
                             "content": content,
+                            "raw_html": data["html"],
                             "last_modified": data["last_modified"],
                             "crawled_at": data["crawled_at"],
                         }
@@ -99,19 +100,20 @@ def filter_data(target_path: str):
 
 def download_input_from_s3():
     """
-    Download gzip files to /tmp/INPUT_PREFIX
+    Download gzip files to /tmp/INPUT_PREFIX/raw
     """
+    fixed_prefix = INPUT_PREFIX + "/raw/"
     succeeded = s3util.download_dir(
-        bucket=BUCKET, prefix=INPUT_PREFIX, local="/tmp")
+        bucket=BUCKET, prefix=fixed_prefix, local="/tmp")
     if succeeded is False:
         logger.error("S3 Download failed")
         return 1
     logger.info("S3 download complete")
 
-    # gunzip /tmp/INPUT_PREFIX/*.gz
+    # gunzip /tmp/INPUT_PREFIX/raw/*.gz
     try:
         subprocess.run(
-            "gunzip /tmp/{}/*.gz".format(INPUT_PREFIX),
+            "gunzip /tmp/{}/*.gz".format(fixed_prefix),
             shell=True,
             stdout=PIPE,
             stderr=PIPE,
@@ -119,21 +121,45 @@ def download_input_from_s3():
         )
     except Exception:
         trace = traceback.format_exc()
-        logger.error("Error while gunzip /tmp/{}/*.gz".format(INPUT_PREFIX))
+        logger.error("Error while gunzip /tmp/{}/*.gz".format(fixed_prefix))
         logger.exception(trace)
         return 1
 
     # Read /tmp/INPUT_PREFIX jsonline and filter and append list
-    filtered_data = filter_data("/tmp/{}".format(INPUT_PREFIX))
+    filtered_data = filter_data("/tmp/{}".format(fixed_prefix))
     logger.info("Document size: {}".format(len(filtered_data)))
 
     return filtered_data
+
+
+def upload_rawdata_to_s3(filtered_data):
+    """
+    Upload to S3
+
+    S3://BUCKET/PREFIX/merged/filtered_rawdata_TIMESTAMP.jsonl.gz
+    """
+    try:
+        filtered_data_bytes = "\n".join([json.dumps(d) for d in filtered_data]).encode(
+            "utf-8"
+        )
+        key = "{}/{}/filtered_rawdata_{}.jsonl.gz".format(
+            INPUT_PREFIX, "merged", TIMESTAMP)
+        s3util.upload_file(BUCKET, key, filtered_data_bytes)
+        logger.info("s3 upload complete")
+    except Exception as e:
+        logger.exception("Error while s3 upload", exc_info=e)
 
 
 @calc_time
 def main():
     """
     Main logic
+
+    Summary:
+        1. Download from S3
+        2. Filter data
+        3. Upload merged raw jsonl to S3 (filtered_rawdata.jsonl)
+        4. Upload original HTML per URL to S3
     """
     if BUCKET is None or PREFIX is None or TIMESTAMP is None:
         logger.error("BUCKET or PREFIX or TIMESTAMP is None")
@@ -146,9 +172,13 @@ def main():
     # Download from S3
     filtered_data = download_input_from_s3()
 
-    # Store in local
-    with jsonlines.open("./filtered_rawdata.jsonl", mode="w") as writer:
+    # Store rawdata in local
+    with jsonlines.open("./filtered_rawdata_{}.jsonl".format(TIMESTAMP), mode="w") as writer:
         writer.write_all(filtered_data)
+
+    # Store rawdata in S3
+    upload_rawdata_to_s3(filtered_data)
+
 
 if __name__ == "__main__":
     main()
