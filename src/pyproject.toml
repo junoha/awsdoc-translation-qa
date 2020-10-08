@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "doc-crawler"
+name = "awsdoc-translation-qa"
 version = "0.1.0"
-description = "Crawler for AWS Document"
+description = "AWS Document translation QA"
 authors = ["Jun Ohashi"]
 license = "MIT"
 
