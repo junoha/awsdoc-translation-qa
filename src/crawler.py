@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 import jsonlines
 
 import s3util
-from helper import calc_time, to_isoformat, is_ok_url
+from helper import calc_time, to_isoformat, is_ok_url, filter_data
 
 # requests retry backoff config
 s = requests.Session()
@@ -108,11 +108,30 @@ async def get_doc_by_service(urls):
         return await asyncio.wait(tasks)
 
 
+def upload_rawdata_to_s3(filtered_data):
+    """
+    Upload to S3
+
+    S3://BUCKET/PREFIX/merged/filtered_rawdata_TIMESTAMP.jsonl.gz
+    """
+    try:
+        filtered_data_bytes = "\n".join([json.dumps(d) for d in filtered_data]).encode(
+            "utf-8"
+        )
+        key = "{}/{}/filtered_rawdata_{}.jsonl.gz".format(
+            PREFIX, "merged", TIMESTAMP)
+        s3util.upload_file_with_gzip(BUCKET, key, filtered_data_bytes)
+    except Exception as e:
+        logger.exception("Error while s3 upload", exc_info=e)
+
+
 def get_all_docs(sitemap_urls):
     """
     Get all AWS documents
     """
     remain_count = len(sitemap_urls)
+    data_list = []
+
     for service_sitemap_url in sitemap_urls:
         logger.info(
             "({0}/{1}) {2}".format(remain_count,
@@ -158,20 +177,17 @@ def get_all_docs(sitemap_urls):
 
         # Get HTMLs in parallel by asyncio
         done, _ = asyncio.run(get_doc_by_service(filtered_service_urls))
-
-        try:
-            # UTF-8 encoded bytes of jsonl with "\n"
-            jsonl_bytes = "\n".join([json.dumps(d.result()) for d in done]).encode(
-                "utf-8"
-            )
-            key = "{}/raw/crawled-html-{}.jsonl.gz".format(
-                PREFIX, len(sitemap_urls) - remain_count
-            )
-            s3util.upload_file(BUCKET, key, jsonl_bytes)
-        except Exception as e:
-            logger.exception("Error while s3 upload", exc_info=e)
+        for d in done:
+            data_list.append(d.result())
 
         remain_count -= 1
+
+    # Filter crawled data
+    filtered_data_list = filter_data(data_list)
+    logger.info("Document size(All)     : {}".format(len(data_list)))
+    logger.info("Document size(Filtered): {}".format(len(filtered_data_list)))
+
+    return filtered_data_list
 
 
 @calc_time
@@ -191,7 +207,14 @@ def main():
     logger.info("Number of sitemap.xml: {}".format(
         len(service_sitemap_urls)))
 
-    get_all_docs(service_sitemap_urls)
+    # Get and filter all documents
+    filtered_data_list = get_all_docs(service_sitemap_urls)
+
+    # Upload merged jsonl
+    if (len(filtered_data_list) > 0):
+        upload_rawdata_to_s3(filtered_data_list)
+    else:
+        logger.info("skip upload to s3")
 
 
 if __name__ == "__main__":
