@@ -93,6 +93,38 @@ def is_ok_url(url: str):
     return True
 
 
+def _parse_html(html: str):
+    """
+    Parse HTML
+    """
+    h = lxml.html.fromstring(html)
+    title = h.cssselect("title")[0].text
+
+    product = None
+    guide = None
+    try:
+        for meta in h.cssselect("meta"):
+            if meta.get("name") == "product":
+                product = meta.get("content")
+            if meta.get("name") == "guide":
+                guide = meta.get("content")
+    except Exception:
+        pass
+
+    # Normalize by clean_html
+    # https://lxml.de/lxmlhtml.html#cleaning-up-html
+    content = clean_html(h).text_content()
+    content = "".join([line.strip()
+                       for line in content.splitlines()])
+
+    return {
+        "title": title,
+        "product": product,
+        "guide": guide,
+        "content": content,
+    }
+
+
 def filter_data(data_list):
     """
     Filter and normalize AWS document data
@@ -100,13 +132,17 @@ def filter_data(data_list):
     doc_list = []
 
     for data in data_list:
-        url = data["url"]
+        try:
+            url = data["url"]
+            url_ja = data["url_ja"]
+        except Exception:
+            logger.exception(traceback.format_exc())
+            logger.warning("cannot retrieve url, skipping...")
+            continue
+
         logger.info("  Start {}".format(url))
 
         # Filter by URL
-        if data["status"] != 200:
-            logger.warning("No 200")
-            continue
         if "apireference" in url.lower():
             logger.warning("API Reference")
             continue
@@ -118,36 +154,26 @@ def filter_data(data_list):
             continue
 
         try:
-            h = lxml.html.fromstring(data["html"])
-            title = h.cssselect("title")[0].text
-
-            product = None
-            guide = None
-            try:
-                for meta in h.cssselect("meta"):
-                    if meta.get("name") == "product":
-                        product = meta.get("content")
-                    if meta.get("name") == "guide":
-                        guide = meta.get("content")
-            except Exception:
-                pass
-
-            # Normalize by clean_html
-            # https://lxml.de/lxmlhtml.html#cleaning-up-html
-            content = clean_html(h).text_content()
-            content = "".join([line.strip()
-                               for line in content.splitlines()])
+            parsed_doc = _parse_html(data["html"])
+            parsed_doc_ja = _parse_html(data["html_ja"])
 
             doc_list.append(
                 {
-                    "url": url,
-                    "product": product,
-                    "guide": guide,
-                    "title": title,
-                    "content": content,
-                    "raw_html": data["html"],
-                    "last_modified": data["last_modified"],
                     "crawled_at": data["crawled_at"],
+                    "url": url,
+                    "last_modified": data["last_modified"],
+                    "product": parsed_doc["product"],
+                    "guide": parsed_doc["guide"],
+                    "title": parsed_doc["title"],
+                    "content": parsed_doc["content"],
+                    "raw_html": data["html"],
+                    "url_ja": url_ja,
+                    "last_modified_ja": data["last_modified_ja"],
+                    "product_ja": parsed_doc_ja["product"],
+                    "guide_ja": parsed_doc_ja["guide"],
+                    "title_ja": parsed_doc_ja["title"],
+                    "content_ja": parsed_doc_ja["content"],
+                    "raw_html_ja": data["html_ja"],
                 }
             )
 

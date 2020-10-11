@@ -47,38 +47,46 @@ async def fetch(url, session):
     try:
         logger.debug("  GET -> {}".format(url))
 
+        # Get ja docs if existing
+        url_ja = url.replace(".com/", ".com/ja_jp/")
+
         response = await session.get(url)
-        if response.status == 200:
+        response_ja = await session.get(url_ja)
+        crawled_at = datetime.now(timezone.utc).replace(
+            microsecond=0).isoformat()
+
+        if response.status == 200 and response_ja.status == 200:
             doc_json = {
+                "crawled_at": crawled_at,
                 "url": url,
                 "status": response.status,
                 "last_modified": to_isoformat(response.headers["Last-Modified"]),
-                "crawled_at": datetime.now(timezone.utc)
-                .replace(microsecond=0)
-                .isoformat(),
+                "etag": response.headers["Etag"],
                 "html": await response.text("utf-8"),
-            }
-        else:
-            doc_json = {
-                "url": url,
-                "status": response.status,
-                "last_modified": None,
-                "crawled_at": datetime.now(timezone.utc)
-                .replace(microsecond=0)
-                .isoformat(),
-                "html": None,
+                "url_ja": url_ja,
+                "status_ja": response_ja.status,
+                "last_modified_ja": to_isoformat(response_ja.headers["Last-Modified"]),
+                "etag_ja": response_ja.headers["Etag"],
+                "html_ja": await response_ja.text("utf-8"),
+                "message": None,
             }
     except Exception:
         trace = traceback.format_exc()
         logger.error("Error while GET {}".format(url))
         logger.exception(trace)
         doc_json = {
+            "crawled_at": crawled_at,
             "url": url,
             "status": None,
             "last_modified": None,
-            "crawled_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "etag": None,
             "html": None,
-            "exception": trace,
+            "url_ja": url_ja,
+            "status_ja": None,
+            "last_modified_ja": None,
+            "etag_ja": None,
+            "html_ja": None,
+            "message": trace,
         }
     finally:
         return doc_json
@@ -183,6 +191,7 @@ def get_all_docs(sitemap_urls):
         remain_count -= 1
 
     # Filter crawled data
+    logger.info("Filtering all documets")
     filtered_data_list = filter_data(data_list)
     logger.info("Document size(All)     : {}".format(len(data_list)))
     logger.info("Document size(Filtered): {}".format(len(filtered_data_list)))
@@ -212,9 +221,12 @@ def main():
 
     # Upload merged jsonl
     if (len(filtered_data_list) > 0):
+        logger.info("Uploading to S3")
         upload_rawdata_to_s3(filtered_data_list)
     else:
         logger.info("skip upload to s3")
+
+    logger.info("Done")
 
 
 if __name__ == "__main__":
